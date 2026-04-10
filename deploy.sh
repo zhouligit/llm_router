@@ -16,7 +16,11 @@ SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
 NGINX_CONF_FILE="/etc/nginx/conf.d/${APP_NAME}.conf"
 
 echo "[1/8] Install base packages..."
-sudo dnf install -y "${PYTHON_BIN}" python3-pip python3-venv nginx
+sudo dnf install -y "${PYTHON_BIN}" python3-pip nginx rsync
+# CentOS/RHEL package names differ by repo/version. Try common venv providers.
+sudo dnf install -y python3-venv || \
+sudo dnf install -y python3-virtualenv || \
+sudo dnf install -y python36-virtualenv || true
 
 echo "[2/8] Create app directory..."
 sudo mkdir -p "${APP_DIR}"
@@ -26,7 +30,18 @@ echo "[3/8] Sync project files to app directory..."
 rsync -av --delete --exclude ".git" --exclude ".venv" ./ "${APP_DIR}/"
 
 echo "[4/8] Create virtualenv and install dependencies..."
-"${PYTHON_BIN}" -m venv "${APP_DIR}/.venv"
+if "${PYTHON_BIN}" -m venv "${APP_DIR}/.venv"; then
+  echo "Created venv via ${PYTHON_BIN} -m venv"
+elif command -v virtualenv >/dev/null 2>&1; then
+  virtualenv -p "$(command -v "${PYTHON_BIN}")" "${APP_DIR}/.venv"
+  echo "Created venv via virtualenv"
+elif "${PYTHON_BIN}" -m virtualenv "${APP_DIR}/.venv"; then
+  echo "Created venv via ${PYTHON_BIN} -m virtualenv"
+else
+  echo "ERROR: cannot create virtual environment."
+  echo "Install one of: python3-venv / python3-virtualenv / python36-virtualenv"
+  exit 1
+fi
 "${APP_DIR}/.venv/bin/pip" install --upgrade pip
 "${APP_DIR}/.venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
 
