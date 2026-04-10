@@ -47,7 +47,7 @@ async def hello_post(request: HelloRequest):
     greeting = f"你好，{request.name}！"
     if request.age:
         greeting += f" 你今年 {request.age} 岁了呀~"
-    
+
     return {
         "code": 200,
         "message": greeting,
