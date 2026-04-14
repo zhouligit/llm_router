@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+
+# If started with `sh deploy.sh`, re-run under bash automatically.
+if [ -z "${BASH_VERSION:-}" ]; then
+  exec bash "$0" "$@"
+fi
+
 set -euo pipefail
 
 # ====== Config: edit these before first run ======
