@@ -13,14 +13,34 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 DOMAIN="${DOMAIN:-your.domain.com}"
 
 SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
-NGINX_CONF_FILE="/etc/nginx/conf.d/${APP_NAME}.conf"
+OS_ID="unknown"
+if [[ -r /etc/os-release ]]; then
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  OS_ID="${ID:-unknown}"
+fi
+
+if [[ "${OS_ID}" == "ubuntu" || "${OS_ID}" == "debian" ]]; then
+  NGINX_CONF_FILE="/etc/nginx/sites-available/${APP_NAME}"
+  NGINX_ENABLE_LINK="/etc/nginx/sites-enabled/${APP_NAME}"
+  INSTALL_CMD="sudo apt-get update && sudo apt-get install -y ${PYTHON_BIN} python3-pip python3-venv nginx rsync"
+elif [[ "${OS_ID}" == "centos" || "${OS_ID}" == "rhel" || "${OS_ID}" == "rocky" || "${OS_ID}" == "almalinux" || "${OS_ID}" == "fedora" ]]; then
+  NGINX_CONF_FILE="/etc/nginx/conf.d/${APP_NAME}.conf"
+  NGINX_ENABLE_LINK=""
+  INSTALL_CMD="sudo dnf install -y ${PYTHON_BIN} python3-pip nginx rsync"
+else
+  echo "ERROR: unsupported OS '${OS_ID}'. Supported: ubuntu/debian, centos/rhel/rocky/almalinux/fedora"
+  exit 1
+fi
 
 echo "[1/8] Install base packages..."
-sudo dnf install -y "${PYTHON_BIN}" python3-pip nginx rsync
-# CentOS/RHEL package names differ by repo/version. Try common venv providers.
-sudo dnf install -y python3-venv || \
-sudo dnf install -y python3-virtualenv || \
-sudo dnf install -y python36-virtualenv || true
+eval "${INSTALL_CMD}"
+# RHEL-like package names differ by repo/version. Try common venv providers.
+if [[ "${OS_ID}" == "centos" || "${OS_ID}" == "rhel" || "${OS_ID}" == "rocky" || "${OS_ID}" == "almalinux" || "${OS_ID}" == "fedora" ]]; then
+  sudo dnf install -y python3-venv || \
+  sudo dnf install -y python3-virtualenv || \
+  sudo dnf install -y python36-virtualenv || true
+fi
 
 echo "[2/8] Create app directory..."
 sudo mkdir -p "${APP_DIR}"
@@ -81,6 +101,11 @@ server {
     }
 }
 EOF
+if [[ -n "${NGINX_ENABLE_LINK}" ]]; then
+  sudo rm -f "${NGINX_ENABLE_LINK}"
+  sudo ln -s "${NGINX_CONF_FILE}" "${NGINX_ENABLE_LINK}"
+  sudo rm -f /etc/nginx/sites-enabled/default
+fi
 
 echo "[7/8] Start service and nginx..."
 sudo systemctl daemon-reload
@@ -89,11 +114,15 @@ sudo nginx -t
 sudo systemctl enable --now nginx
 sudo systemctl restart nginx
 
-echo "[8/8] Firewall and SELinux setup..."
-sudo firewall-cmd --permanent --add-service=http || true
-sudo firewall-cmd --permanent --add-service=https || true
-sudo firewall-cmd --reload || true
-sudo setsebool -P httpd_can_network_connect 1 || true
+echo "[8/8] Firewall / security setup..."
+if [[ "${OS_ID}" == "ubuntu" || "${OS_ID}" == "debian" ]]; then
+  sudo ufw allow 'Nginx Full' || true
+elif [[ "${OS_ID}" == "centos" || "${OS_ID}" == "rhel" || "${OS_ID}" == "rocky" || "${OS_ID}" == "almalinux" || "${OS_ID}" == "fedora" ]]; then
+  sudo firewall-cmd --permanent --add-service=http || true
+  sudo firewall-cmd --permanent --add-service=https || true
+  sudo firewall-cmd --reload || true
+  sudo setsebool -P httpd_can_network_connect 1 || true
+fi
 
 echo
 echo "Done."
